@@ -1,6 +1,6 @@
 from django.test import TestCase, Client
 from django.utils import timezone
-from datetime import datetime
+from datetime import datetime, timedelta  # timedeltaを追加しました
 from todo.models import Task
 
 class TaskModelTestCase(TestCase):
@@ -14,7 +14,6 @@ class TaskModelTestCase(TestCase):
         self.assertFalse(task.completed)
         self.assertEqual(task.due_at, due)
     
-
     def test_create_task2(self):
         task = Task(title='task2')
         task.save()
@@ -24,7 +23,6 @@ class TaskModelTestCase(TestCase):
         self.assertFalse(task.completed)
         self.assertEqual(task.due_at, None)
     
-
     def test_is_overdue_future(self):
         due = timezone.make_aware(datetime(2026, 6, 30, 23, 59, 59))
         current = timezone.make_aware(datetime(2026, 6, 30, 0, 0, 0))
@@ -45,21 +43,68 @@ class TaskModelTestCase(TestCase):
         task.save()
         self.assertFalse(task.is_overdue(current))
 
-
 class TodoViewTestCase(TestCase):
     def test_index_get(self):
         client = Client()
         response = client.get('/')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.templates[0].name, 'todo/index.html')  # [0]の位置をスライド通りに修正
+        self.assertEqual(response.templates[0].name, 'todo/index.html')
         self.assertEqual(len(response.context['tasks']), 0)
 
     def test_index_post(self):
         client = Client()
-        data = {'title': 'Test Task', 'due_at': '2026-06-30 23:59:59'}  # 2026年に合わせています
+        data = {'title': 'Test Task', 'due_at': '2026-06-30 23:59:59'}
         response = client.post('/', data)
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.templates[0].name, 'todo/index.html')  # [0]の位置をスライド通りに修正
+        self.assertEqual(response.templates[0].name, 'todo/index.html')
         self.assertEqual(len(response.context['tasks']), 1)
+
+    def test_index_get_order_default(self):
+        task1 = Task(title='task1', due_at=timezone.make_aware(datetime(2026, 7, 1)))
+        task1.save()
+        # task1の登録時間を1分前にズラして確実に古くします
+        task1.posted_at = timezone.now() - timedelta(minutes=1)
+        task1.save()
+
+        task2 = Task(title='task2', due_at=timezone.make_aware(datetime(2026, 8, 1)))
+        task2.save()
+
+        client = Client()
+        response = client.get('/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['tasks'][0], task2)
+        self.assertEqual(response.context['tasks'][1], task1)
+
+    def test_index_get_order_post(self):
+        task1 = Task(title='task1', due_at=timezone.make_aware(datetime(2026, 7, 1)))
+        task1.save()
+        # task1の登録時間を1分前にズラして確実に古くします
+        task1.posted_at = timezone.now() - timedelta(minutes=1)
+        task1.save()
+
+        task2 = Task(title='task2', due_at=timezone.make_aware(datetime(2026, 8, 1)))
+        task2.save()
+        
+        client = Client()
+        response = client.get('/?order=post')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.templates[0].name, 'todo/index.html')
+        self.assertEqual(response.context['tasks'][0], task2)
+        self.assertEqual(response.context['tasks'][1], task1)
+
+    def test_index_get_order_due(self):
+        task1 = Task(title='task1', due_at=timezone.make_aware(datetime(2026, 7, 1)))
+        task1.save()
+        task2 = Task(title='task2', due_at=timezone.make_aware(datetime(2026, 8, 1)))
+        task2.save()
+        
+        client = Client()
+        response = client.get('/?order=due')
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.templates[0].name, 'todo/index.html')
+        self.assertEqual(response.context['tasks'][0], task1)
+        self.assertEqual(response.context['tasks'][1], task2)
